@@ -29,36 +29,33 @@ plt.close('all')
 """ Load the data """
 #______________________________________________________________________________
 
-data   = np.loadtxt('./data_these/SOLO_data/SOLO_data_V3_16072020.txt', dtype=str)    
-tt_temp = Time(data.T[0], format='isot')
-data = data.T[1:].astype(np.float)  
-                                                                # Resample the data to a constant timestep
-tt, data_new, i_nans = fun.resample(data, tt_temp, 4, erase_nan= False)    
-
-dt          = tt[1:]- tt[:-1]                           # Time step
+data        = np.loadtxt('./data_demo')    
+tt_all      = Time(data[0], format='jd')           # Time Vector  
+data        = data[1:]                             # Loaded data
+                                                               
+dt          = tt_all[1:]- tt_all[:-1]              # Time step
 dt.format   = 'sec'
 dt          = np.mean(dt.value)
+tt = tt_all.datetime         
+                                                   # Retrieve the relevant variables
+B, B_mag, n_p, V, V_mag, T, P, qf = fun.read_data(data) 
 
-tt          = tt.datetime                                       # Time Vector  
-N_points    = len(tt)                                           # Number of measurements
+                                                   # ! Important ! 
+                                                   # Check that the strides of B and v are
+                                                   # (8, 24) 
+                                                   # (Otherwise, the algorithm does not work)
+if B.strides[0]!=8:
+    B = B[:, np.ones(len(B[0]), dtype=bool)]
+    V = V[:, np.ones(len(B[0]), dtype=bool)]
+        
+N_points    = len(tt)                               # Number of measurements
 
-
-n_p     = data_new[0, ]                      #Proton density
-V       = data_new[1:4, ]                    #Proton velocity vector
-V_mag   = np.linalg.norm(V, axis=0)          #Proton speed
-T       = data_new[4, ]                      #Proton temperature
-P       = data_new[5:11,  ]/cst.eV           #Pressure tensor
-B       = data_new[11:14, ]                  #Magnetic field vector
-B_mag   = data_new[14, ]                     #Magnetic field magnitude
-qf      = data_new[15, ]                     #PAS quality factor
-                                                            # Variables  
-B, B_mag, n_p, V, V_mag, T, P, qf = fun.read_data(data_new, ) 
-
-Va          = fun.Alfven_speed(B, B_mag, n_p, P)                # Alfvén speed computation
+Va          = fun.Alfven_speed(B, B_mag, n_p, P)    # Alfvén speed computation
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ''' Inputs '''
 #______________________________________________________________________________
+
 
 sigma_0     = 2. #km/s
 epsilon     = 0.1 #km/s / points
@@ -76,7 +73,7 @@ print('current = ' + str(current_lim))
 
 
 
-scale   = np.linspace(25,850,100)                               # Scales (in seconds) to span
+scale   = np.linspace(25,850,100)         # Scales (in seconds) to span
 print('\nInvestigating scales from ' + str(scale[0]) + 
       ' to ' + str(scale[-1]) + ' seconds')
 
@@ -234,7 +231,7 @@ i_fig +=1
 gs = gridspec.GridSpec(7,1)
 
 ax1 = fig.add_subplot(gs[0])
-ax1.set_title(str(N_JETS) + ' jet(s) detected !')
+# ax1.set_title(str(N_JETS) + ' jet(s) detected !')
 ax1.plot(tt, B[0],  lw=lw, c='b', alpha = alpha, label = r'$B_R$')
 ax1.plot(tt, B_mag, lw=lw, c='k', alpha = alpha, label = r'$B_{mag}$')
 plt.setp(ax1.get_xticklabels(), visible=False)
