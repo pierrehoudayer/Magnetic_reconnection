@@ -108,13 +108,13 @@ def resample(data, tt_temp, time_step = 4, erase_nan=True):
     return tt_new, data_new, i_nans_new  
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def read_data(data, ):
+def read_data(data):
     """
     Parameters
     ----------
     data : ARRAY(K, N)
         Data array of K parameters containing N measurements.
-            
+               
     Returns
     -------
     ARRAYS (N,)
@@ -122,9 +122,9 @@ def read_data(data, ):
     """
     n_p     = data[0, ]                      #Proton density
     V       = data[1:4, ]                    #Proton velocity vector
-    V_mag   = np.linalg.norm(V, axis=0)            #Proton speed
+    V_mag   = np.linalg.norm(V, axis=0)      #Proton speed
     T       = data[4, ]                      #Proton temperature
-    P       = data[5:11,  ]/cst.eV           #Pressure tensor
+    P       = data[5:11, ]/cst.eV            #Pressure tensor
     B       = data[11:14, ]                  #Magnetic field vector
     B_mag   = data[14, ]                     #Magnetic field magnitude
     qf      = data[15, ]                     #PAS quality factor
