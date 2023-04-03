@@ -5,17 +5,16 @@ Created on Fri Nov 12 15:46:47 2021
 @author: naisf
 """
 
-import numpy as np
-import matplotlib.gridspec as gridspec
-import scipy.constants as cst
 import datetime
+import numpy               as np
+import matplotlib.gridspec as gridspec
+import scipy.constants     as cst
 
-import f_mva
-import fun
-
-from matplotlib import pyplot as plt
-from tqdm import tqdm
+from matplotlib   import pyplot as plt
+from tqdm         import tqdm
 from astropy.time import Time
+
+import fun
 
 as_strided = np.lib.stride_tricks.as_strided 
 
@@ -33,7 +32,7 @@ data        = np.loadtxt('./data_demo')
 tt_all      = Time(data[0], format='jd')           # Time Vector  
 data        = data[1:]                             # Loaded data
                                                                
-dt          = tt_all[1:]- tt_all[:-1]              # Time step
+dt          = tt_all[1:] - tt_all[:-1]              # Time step
 dt.format   = 'sec'
 dt          = np.mean(dt.value)
 tt = tt_all.datetime         
@@ -45,8 +44,8 @@ B, B_mag, n_p, V, V_mag, T, P, qf = fun.read_data(data)
                                                    # (8, 24) 
                                                    # (Otherwise, the algorithm does not work)
 if B.strides[0]!=8:
-    B = B[:, np.ones(len(B[0]), dtype=bool)]
-    V = V[:, np.ones(len(B[0]), dtype=bool)]
+    B = B[:, np.ones_like(B[0], dtype=bool)]
+    V = V[:, np.ones_like(B[0], dtype=bool)]
         
 N_points    = len(tt)                               # Number of measurements
 
@@ -74,8 +73,11 @@ print('current = ' + str(current_lim))
 
 
 scale   = np.linspace(25,850,100)         # Scales (in seconds) to span
-print('\nInvestigating scales from ' + str(scale[0]) + 
-      ' to ' + str(scale[-1]) + ' seconds')
+print(
+      '\nInvestigating scales from ' 
+    + str(scale[0])  + ' to ' 
+    + str(scale[-1]) + ' seconds'
+)
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 """ Test the Walen relation """
@@ -86,17 +88,19 @@ tt_jet      = []                          # Initialise the jet list
 for j in tqdm(range(len(scale))):         # Sweep the different scales
     
     h = int(scale[j] / dt)                # Number of points in the window (should be ODD)
-    if h %2 == 0:
+    if h % 2 == 0:
         h += 1     
    
-    sigma   = (sigma_0 +                  #Define the noise profile sigma
-               epsilon * h * (1 - np.exp(-0.5 * (np.linspace(-h/2, h/2, h))**2 / h**2) ))
+    sigma   = (
+        sigma_0 +                  #Define the noise profile sigma
+        epsilon * h * (1 - np.exp(-0.5 * (np.linspace(-h/2, h/2, h))**2 / h**2) )
+    )
         
                                           # Reshape the vectors into (..., h, N-h+1) Arrays
                                           # to facilitate the analysis
     Va_reshaped = as_strided(Va, (3,h,N_points-h+1), (8, 24, 24))    
-    V_reshaped  = as_strided(V, (3,h,N_points-h+1), (8, 24, 24))
-    tt_reshaped = as_strided(tt, (h,N_points-h+1), (8, 8))
+    V_reshaped  = as_strided(V,  (3,h,N_points-h+1), (8, 24, 24))
+    tt_reshaped = as_strided(tt, (h,N_points-h+1),   (8, 8))
     
                                           # Substract the central value for each window
     dV          = V_reshaped - V_reshaped[:, h//2, :][:, None]
@@ -114,7 +118,7 @@ for j in tqdm(range(len(scale))):         # Sweep the different scales
 
                                          # find potential jets 
                                          # (post_ratio>1 over two conescutive points)
-    i_jet_temp  = np.argwhere(post_ratio>1)[:,0]    
+    i_jet_temp  = np.argwhere(post_ratio > 1)[:, 0]    
     i_jet       = fun.consecutive(i_jet_temp, 2)
     
     n_jets      = len(i_jet)             # Number of potential jets flagged
@@ -126,11 +130,13 @@ for j in tqdm(range(len(scale))):         # Sweep the different scales
     for p in range(n_jets):              # Check the flagged intervals
                                       
         add_points  = h - len(i_jet[p])  # adjust to window length
-        i_0         = i_jet[p][0]-add_points//2
-        i_f         = np.min((i_jet[p][-1]+add_points//2+1, len(tt)-1))
+        i_0         = i_jet[p][0] - add_points//2
+        i_f         = np.min((i_jet[p][-1] + add_points//2 + 1, len(tt) - 1))
         
                                          # Rotate to the lmn frame      
-        lmn_matrix  = np.asarray(f_mva.mva(B[:, i_0: i_f].T, noprint=True).results['Matrice_Passage'])
+        lmn_matrix  = np.asarray(
+            fun.mva(B[:, i_0: i_f].T, noprint=True).results['Matrice_Passage']
+        )
         B_mva       = np.dot(lmn_matrix.T, B[:,i_0:i_f])
         V_mva       = np.dot(lmn_matrix.T, V[:,i_0:i_f])                     
         
@@ -148,11 +154,14 @@ for j in tqdm(range(len(scale))):         # Sweep the different scales
                         if fun.current_sheet(B_mva[0], V_mva[2], scale[j], current_lim, h):   
                             
                             #Then add the interval to the detection list
-                            tt_jet.append([[Time(tt[i_0]).jd], [Time(tt[i_f]).jd],
-                                               [np.log(np.max(post_ratio[i_jet[p]]))]])              
+                            tt_jet.append(
+                                [[Time(tt[i_0]).jd], 
+                                 [Time(tt[i_f]).jd], 
+                                 [np.log(np.max(post_ratio[i_jet[p]]))]]
+                                )              
 
 
-list.sort(tt_jet,key=lambda x: x[0])     # Sort the detected intervals
+list.sort(tt_jet, key=lambda x: x[0])     # Sort the detected intervals
 tt_jet = np.array(tt_jet)
 
 if len(tt_jet)==0:                       # Case where no jet is detected
@@ -160,30 +169,40 @@ if len(tt_jet)==0:                       # Case where no jet is detected
     final_tt_jet = []
     
 else:                                    # Else, concatenate the overlapping intervals
-    tt_jet = tt_jet[:,:,0]
+    tt_jet = tt_jet[:, :, 0]
     
-    tt_jet_temp = Time(tt_jet[:,:2], format=  'jd').datetime
-    proba_temp = tt_jet[:,2]
+    tt_jet_temp = Time(tt_jet[:, :2], format='jd').datetime
+    proba_temp = tt_jet[:, 2]
     
     detection_vect = np.zeros(N_points)  # Creation of a detection vector, size (N,), 
                                          # 1 if in a jet, 0 elsewhere
     proba = np.zeros(N_points)           # initialize the associated log-posterior probability vector
     
-    for i in (range(len(tt_jet[:,0]))):
-        detection_vect[(tt >= tt_jet_temp[i,0]) 
-                       & (tt<=tt_jet_temp[i,1])] = 1
+    for i in (range(len(tt_jet[:, 0]))):
+        detection_vect[
+              (tt >= tt_jet_temp[i, 0]) 
+            & (tt <= tt_jet_temp[i, 1])
+        ] = 1
         
-        proba[(tt>=tt_jet_temp[i,0]) 
-              & (tt<=tt_jet_temp[i,1])] = max(proba_temp[i],
-                                              max(proba[(tt>=tt_jet_temp[i,0]) 
-                                                        & (tt<=tt_jet_temp[i,1])]))   
+        proba[
+              (tt >= tt_jet_temp[i, 0]) 
+            & (tt <= tt_jet_temp[i, 1])
+        ] = max(
+            proba_temp[i], 
+            max(
+                proba[
+                      (tt >= tt_jet_temp[i, 0]) 
+                    & (tt <= tt_jet_temp[i, 1])
+                ]
+            )
+        )   
                                          
                                           # Number of jets
-    i_detection = fun.consecutive(np.argwhere(detection_vect==1)[:,0],1)
+    i_detection = fun.consecutive(np.argwhere(detection_vect == 1)[:,0],1)
     N_JETS = len(i_detection)
     
     final_tt_jet = []                     # Final jet timetable
-    final_proba = []                      # Final associated log-posterior probability
+    final_proba  = []                     # Final associated log-posterior probability
     
     for p in range(N_JETS):               # Re-perform the most obvious checks after concatenation:
     
@@ -191,9 +210,11 @@ else:                                    # Else, concatenate the overlapping int
         i_f         = i_detection[p][-1]
         
                                           # Transform to the lmn frame        
-        lmn_matrix  = np.asarray(f_mva.mva(B[:, i_0: i_f].T, noprint=True).results['Matrice_Passage'])
-        B_mva       = np.dot(lmn_matrix.T, B[:,i_0:i_f])
-        V_mva       = np.dot(lmn_matrix.T, V[:,i_0:i_f]) 
+        lmn_matrix  = np.asarray(
+            fun.mva(B[:, i_0: i_f].T, noprint=True).results['Matrice_Passage']
+        )
+        B_mva       = np.dot(lmn_matrix.T, B[:, i_0:i_f])
+        V_mva       = np.dot(lmn_matrix.T, V[:, i_0:i_f]) 
         size = len(B_mva[0])       
         
         # If B_L reverses consistently over the interval
@@ -201,18 +222,27 @@ else:                                    # Else, concatenate the overlapping int
             if fun.stable_sign(B_mva[0], size):  
                 
                 # If the slopes of Vl are consistent with a velocity jet 
-                pente_1 = V_mva[0, size//2] - V_mva[0, 0]
+                pente_1 = V_mva[0, size//2] - V_mva[0,  0]
                 pente_2 = V_mva[0, size//2] - V_mva[0, -1] 
                 if np.sign(pente_1) * np.sign(pente_2) == 1:
                     
                     # Then add the interval to the detection list
-                    final_tt_jet.append([[Time(tt[i_detection[p][0]]).jd], [Time(tt[i_detection[p][-1]]).jd]])
-                    final_proba.append(np.max((proba[i_detection[p][0]], proba[i_detection[p][-1]])))
+                    final_tt_jet.append(
+                        [[Time(tt[i_detection[p][0]]).jd], 
+                         [Time(tt[i_detection[p][-1]]).jd]]
+                    )
+                    final_proba.append(
+                        np.max(
+                            (proba[i_detection[p][ 0]], 
+                             proba[i_detection[p][-1]])
+                        )
+                    )
 
     final_tt_jet = np.array(final_tt_jet)
-    final_proba = np.array(final_proba)
+    final_proba  = np.array(final_proba)
+    
     #Convert jd to datetime
-    final_tt_jet_time = Time(final_tt_jet[:,:,0], format = 'jd')
+    final_tt_jet_time = Time(final_tt_jet[:, :, 0], format = 'jd')
     final_tt_jet = final_tt_jet_time.datetime
     N_JETS = len(final_tt_jet)
     
@@ -280,16 +310,20 @@ if N_JETS>0:
     for i in range(final_tt_jet[:,0].size):         
         duration = Time(final_tt_jet[i,1]) - Time(final_tt_jet[i,0])
         duration.format = 'sec'       
-        print ('#'+str(i)+' - ' + str(int(np.round(duration.value)))+ 's - ' 
-                    + str(Time(final_tt_jet).iso[i,0]) + ' - '
-                    + str(Time(final_tt_jet).iso[i,1]) + ' - ' +str(np.round(final_proba[i],2)) 
-                    )
-        [ax.axvspan(final_tt_jet[i,0],
-                    final_tt_jet[i,1], color = 'b', 
-                    alpha=alpha) for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]]
+        print(
+            '#' + str(i) + ' - ' 
+                + str(int(np.round(duration.value))) + 's - ' 
+                + str(Time(final_tt_jet).iso[i, 0])  + ' - '
+                + str(Time(final_tt_jet).iso[i, 1])  + ' - ' 
+                + str(np.round(final_proba[i], 2)) 
+        )
+        [ax.axvspan(
+            final_tt_jet[i,0],final_tt_jet[i,1], color = 'b', alpha=alpha
+        ) for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]]
 
 alpha = 1
 
 [ax.tick_params(labelsize = police) for ax in [ax1, ax2, ax3, ax4, ax5, ax6, ax7]]
 plt.tight_layout() 
 plt.subplots_adjust(hspace=0.3)
+plt.show()

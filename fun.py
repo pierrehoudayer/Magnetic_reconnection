@@ -20,9 +20,74 @@ from scipy import interpolate
 
 """ Functions """
 
+class mva(object):
+	"""
+	Methode de calcul du minimum variance analysis
+	Input field : magnetic field or any other 3D field to apply the MVA method in NUMPY ARRAY
+	X,Y,Z in rows and data in columns such as B[:,0] = all data, x component
+	input field2 : table 3x2 first row is magnetosphere vector, second is magnetosheath then MVA is determined using cross product between magnetosheath and magnetosphere, such as B[0,:] = MSP vector en NUMPY ARRAY
+	TO DO : option to input only 1 timeserie and MSP, MSH, current sheet time interval using decorator?)
+	Results are provided in self.results
+	MVA provide a transport matrix, with L,M,N in each colums of the matrix, such as :
+	new_vect = old_vect([x,y,z]) * matrix, or new_vect = inv(matrix) * old_vect[[x], [y], [z]]
+	"""
+	def __init__(self, field, field2 = None, noprint = False):
+		
+		self.field = field #np.array([[x,]]) #en entrée : champ avec 3 composantes sur n mesures
+		self.results = {}
+		self.calc(noprint = noprint)
+		#self.noprint = noprint
+		if field2 is not None :
+			self.field_cross = field2 # en entré : deux vecteurs de 3 composantes déjà moyenné
+			self.calc_cross(noprint = noprint)
+
+	def calc(self, noprint = False) :
+		self.matrice = np.zeros([3,3])
+		for i in range(3) :
+			for j in range(3) :
+				self.matrice[i,j] = np.mean(self.field[:,i] * self.field[:,j]) - self.field[:,i].mean() * self.field[:,j].mean()
+		
+		eigVal, eigVect = np.linalg.eig(self.matrice)
+		Vec_N, Vec_M, Vec_L = [eigVect[:,i] for i in np.argsort(abs(eigVal))]
+        
+		if np.linalg.det(np.mat([Vec_L, Vec_M, Vec_N]))==-1 :
+			Vec_M = - Vec_M
+            
+		self.results['eigen_Val'] = eigVal[np.argsort(abs(eigVal))]
+		self.results['eigen_Vect'] = {'l' : Vec_L, 'm' : Vec_M, 'n' : Vec_N}
+		self.results['Matrice_Passage'] = np.mat([Vec_L, Vec_M, Vec_N]).T
+		
+		if not noprint :
+			print('Resultat par diagonalisation de Matrice : ', '\n', 'L : ', Vec_L, 'Eigen val :', self.results['eigen_Val'][2] , '\n',  'M : ',  Vec_M, 'Eigen val :', self.results['eigen_Val'][1], '\n', 'N : ', Vec_N, 'Eigen val :', self.results['eigen_Val'][0])
+
+	def calc_cross(self, noprint = False) :
+		Vec_MSP, Vec_MSH = [self.field_cross[0,:], self.field_cross[1,:]]
+		Vec_N2 = np.cross(Vec_MSP, Vec_MSH) / np.linalg.norm(np.cross(Vec_MSP,Vec_MSH))
+		tmp = np.cross(Vec_N2, self.results['eigen_Vect']['l'])
+		Vec_M2 = (tmp / np.linalg.norm(tmp)) * np.vdot(tmp, Vec_MSP) / abs(np.vdot(tmp, Vec_MSP))
+		Vec_L2 = np.cross(Vec_M2, Vec_N2)
+		self.results['eigen_Vect2'] = {'l' : Vec_L2, 'm' : Vec_M2, 'n' : Vec_N2}
+		self.results['Matrice_Passage2'] = np.mat([Vec_L2, Vec_M2, Vec_N2]).T
+		
+		if not noprint :
+			print('Resultat par produit croisé SH / SP : \n', 'L : ', Vec_L2, '\n',  'M : ',  Vec_M2, '\n', 'N : ', Vec_N2)
+
+	def hodogram(self, system = 1) :
+		"""
+		project field in MVA new coordinate system and plot the L vs N and M vs N graphs
+		""" 
+		if system == 1 : matrice = self.results['Matrice_Passage']
+		elif system == 2 : matrice = self.results['Matrice_Passage2']
+		else : print('Choose MVA 1 or 2')
+		proj = np.array([vect *matrice for vect in self.field])[:,0]
+		
+		f = plt.figure()
+		plt.plot(proj[:,0], proj[:,2])
+		plt.plot(proj[:,1], proj[:,2])
+		plt.show()
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def DSplin(xin,xout,f,lis,n,order) :
+def DSplin(xin, xout, f, lis=0.0, n=0, order=1) :
     
     """
     derivation / integration / interpolation function
@@ -87,20 +152,27 @@ def resample(data, tt_temp, time_step = 4, erase_nan=True):
     """    
     
     t0 = tt_temp[0].jd                                                  # Start date
-    n_pts = int((tt_temp[-1].jd - tt_temp[0].jd)*24*3600 // 4)+1        # Number of points in new time vector
-    tt_new = Time(np.linspace(t0,  t0 + (n_pts-1)*4./3600/24, n_pts), 
-                  format='jd')                                          # new time vector
+    n_pts = int(
+        (tt_temp[-1].jd - tt_temp[0].jd) * (24*3600//time_step)
+    ) + 1                                                               # Number of points in new time vector
+    tt_new = Time(
+        np.linspace(t0, t0 + (n_pts-1)*(time_step/3600/24), n_pts), 
+        format='jd'
+    )                                                                   # new time vector
         
     i_nans = np.max(np.isnan(data[:-2]), axis=0)                        # Flag intervals with NaN values
-    i_nans_new = DSplin(tt_temp.jd, tt_new.jd, i_nans, 0, 0, 1)         # Transpose these intervals to 
+    i_nans_new = DSplin(tt_temp.jd, tt_new.jd, i_nans)                  # Transpose these intervals to 
                                                                         # the new time frame
     i_nans_new[i_nans_new>0] = 1
     i_nans_new = np.array(i_nans_new, dtype=bool) 
     
     data_new = np.zeros((len(data), n_pts))                             # Initiate new data array
-    for i in tqdm(range(len(data))):                                    # Resample each parameter
-        data_new[i] = DSplin(tt_temp[np.argwhere(~np.isnan(data[i]))[:,0]].jd, 
-                             tt_new.jd, data[i, np.argwhere(~np.isnan(data[i]))[:,0]], 0, 0, 1)
+    for i in tqdm(range(len(data))):   
+        # Resample each parameter
+        is_not_nan = np.argwhere(~np.isnan(data[i]))[:, 0]
+        data_new[i] = DSplin(
+            tt_temp[is_not_nan].jd, tt_new.jd, data[is_not_nan]
+        )
         if erase_nan:
             data_new[i, i_nans_new] = 'NaN'                             # Put NaN values where other parameters 
                                                                         # are unavailable
@@ -149,20 +221,27 @@ def rotate_P(B, P):
 
     """    
     #bframe
-    b1 = (B / np.linalg.norm(B, axis=0))                    
-    b2 = np.cross(np.array([0,0,1]), b1, axisb = 0).T
+    b1 = B / np.linalg.norm(B, axis=0)               
+    b2 = np.cross(np.array([0, 0, 1]), b1, axisb = 0).T
     b2 = b2/np.linalg.norm(b2, axis=0)
     b3 = np.cross(b1, b2, axisa = 0, axisb = 0).T
     
-    rot_matrix      = np.array([b1, b2,b3]).T
+    rot_matrix      = np.array([b1, b2, b3]).T
     rot_matrix_inv  = np.linalg.inv(rot_matrix)
     
-    P_tensor        = np.array([[P[0], P[3], P[4]],
-                                [P[3], P[1], P[5]],
-                                [P[4], P[5], P[2]]
-                                ]).T
+    P_tensor        = np.array(
+        [[P[0], P[3], P[4]],
+         [P[3], P[1], P[5]],
+         [P[4], P[5], P[2]]]
+    ).T
     
-    P_in_B_frame = np.einsum('...kj,...jn', rot_matrix_inv, np.einsum('...jk,...jn', P_tensor, rot_matrix))
+    P_in_B_frame = np.einsum(
+        '...kj,...jn', 
+        rot_matrix_inv, 
+        np.einsum(
+            '...jk,...jn', P_tensor, rot_matrix
+        )
+    )
     
     return P_in_B_frame
 
@@ -192,8 +271,12 @@ def Alfven_speed(B, B_mag, n_p, P, anisotropy = True):
     if anisotropy:                
         #Compute the anisotropy correction term
         P_in_B_frame        = rotate_P(B, P)        
-        alpha_p             = cst.mu_0/(B_mag *1e-9)**2 *(P_in_B_frame[:,0,0] - (P_in_B_frame[:,1,1] ))*cst.eV*1e6
-        alpha_p[alpha_p>1]  = 0
+        alpha_p             = (
+              cst.mu_0 / (B_mag * 1e-9)**2 
+            * (P_in_B_frame[:, 0, 0] - P_in_B_frame[:, 1, 1])
+            * cst.eV * 1e6
+        )
+        alpha_p[alpha_p > 1]  = 0
     
         #Alfvén speed
         Va = (B.T * 1e-9 * np.sqrt(1 - alpha_p[:,None]) /
@@ -254,14 +337,18 @@ def likelihood(dVa, dV, h, sigma, theta = np.array([1,1])):
     """
   
     # Compute the model
-    dV_model = sign_vector(h, theta)[None,:,None]*dVa    
+    dV_model = sign_vector(h, theta)[None, :, None] * dVa    
     
     # Compute the error vector
     eps = dV_model - dV        
     
     # Compute the likelihood                
-    chi = np.einsum('ij...,ij...->...', 
-                    eps, eps / (2*sigma[:,None]**2)) - 3/2 * np.einsum('i->', np.log(2 * np.pi * sigma**2)) 
+    chi = (
+        - 1.0 * np.einsum(
+            'ij...,ij...->...', eps, eps / (2*sigma[:,None]**2), optimize=True
+        )
+        - 3/2 * np.sum(np.log(2 * np.pi * sigma**2))
+    )
     return chi
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -292,22 +379,23 @@ def compare_posteriors(prior, dVa, dV, h, sigma):
     N_points = len(dVa[0,0]) + h - 1
     
     #initialize the likelihood vectors
-    Likelihood_PLUS     = np.zeros(N_points)
-    Likelihood_MOINS    = np.zeros(N_points)
-    Likelihood_JET_pm   = np.zeros(N_points)
-    Likelihood_JET_mp   = np.zeros(N_points)
+    Likelihood_PLUS   = np.zeros(N_points)
+    Likelihood_MOINS  = np.zeros(N_points)
+    Likelihood_JET_pm = np.zeros(N_points)
+    Likelihood_JET_mp = np.zeros(N_points)
     
     #Compute the likelihood vectors
-    Likelihood_PLUS[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([1,1]))          
-    Likelihood_MOINS[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([-1,-1]))  
-    Likelihood_JET_pm[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([1,-1]))  
-    Likelihood_JET_mp[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([-1,1]))  
+    Likelihood_PLUS[  h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([ 1, 1]))          
+    Likelihood_MOINS[ h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([-1,-1]))  
+    Likelihood_JET_pm[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([ 1,-1]))  
+    Likelihood_JET_mp[h//2 : N_points-h//2] = likelihood(dVa, dV, h, sigma, np.array([-1, 1]))  
        
     #Compute the posterior ratios
-    post_ratio = (prior / (1 - prior) * 
-                  ((np.exp(Likelihood_JET_mp / h) + np.exp(Likelihood_JET_pm / h)) /
-                  (np.exp(Likelihood_PLUS / h) + np.exp(Likelihood_MOINS / h)))
-                  )
+    post_ratio = (
+          prior / (1 - prior) 
+        * (  (np.exp(Likelihood_JET_mp / h) + np.exp(Likelihood_JET_pm / h)) 
+           / (np.exp(Likelihood_PLUS   / h) + np.exp(Likelihood_MOINS  / h)))
+    )
       
     return post_ratio
 
@@ -330,7 +418,7 @@ def consecutive(data, min_size = 1):
 
     """
 
-    chains = np.split(data, np.where(np.diff(data) != 1)[0]+1)
+    chains = np.split(data, np.where(np.diff(data) != 1)[0] + 1)
     result = []
     for i in range(len(chains)):
         if len(chains[i]) >= min_size:
@@ -427,7 +515,7 @@ def velocity_jet(V_mva, dV_min, h,):
     """
     
     # Compute the slope of V_l on both sides of the jet 
-    pente_1 = V_mva[0, h//2] - V_mva[0, 0]
+    pente_1 = V_mva[0, h//2] - V_mva[0,  0]
     pente_2 = V_mva[0, h//2] - V_mva[0, -1] 
     
     # Compute the maximum velocity variation in each direction 
@@ -476,8 +564,13 @@ def current_sheet(B_l, V_n, scale, current_lim, h):
     """
     
     #Compute the current on each jet boudary
-    current1 = np.abs((B_l[h//2] - B_l[0]) / (np.median(V_n) * 1e3 * scale/2 * cst.mu_0))
-    current2 = np.abs((B_l[-1] - B_l[h//2]) / (np.median(V_n) * 1e3 * scale/2 * cst.mu_0))
+    delta_n = np.median(V_n) * 1e3 * scale/2
+    current1 = np.abs(
+        (B_l[h//2] - B_l[ 0]) / (delta_n * cst.mu_0)
+    )
+    current2 = np.abs(
+        (B_l[-1] - B_l[h//2]) / (delta_n * cst.mu_0)
+    )
     
     if (current1 >= current_lim) & (current2 >= current_lim): 
         return True
