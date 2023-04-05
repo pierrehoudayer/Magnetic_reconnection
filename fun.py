@@ -223,7 +223,7 @@ def rotate_P(B, P):
     #bframe
     b1 = B / np.linalg.norm(B, axis=0)               
     b2 = np.cross(np.array([0, 0, 1]), b1, axisb = 0).T
-    b2 = b2/np.linalg.norm(b2, axis=0)
+    b2 = b2 / np.linalg.norm(b2, axis=0)
     b3 = np.cross(b1, b2, axisa = 0, axisb = 0).T
     
     rot_matrix      = np.array([b1, b2, b3]).T
@@ -312,7 +312,16 @@ def sign_vector(h, theta):
     return foix 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def likelihood(dVa, dV, h, sigma, theta = np.array([1,1])):
+def norm_2D(U, V, sign) : 
+    result = (
+          np.einsum('ij...,ij...->...', U, U) 
+        + np.einsum('ij...,ij...->...', V, V)
+        + np.einsum('ij...,ij...->...', U, V) * 2*sign
+    )
+    return result
+
+
+def likelihood(dVa, dV, h, sigma, theta = np.array([1, 1])):
     """
     Computes the likelihood of theta given V, Va and sigma
 
@@ -334,18 +343,18 @@ def likelihood(dVa, dV, h, sigma, theta = np.array([1,1])):
     chi : ARRAY (N-h+1,)
         Likelihood of the data as a function of time.
 
-    """
-  
-    # Compute the model
-    dV_model = sign_vector(h, theta)[None, :, None] * dVa    
+    """    
+    # # Compute the error vector
+    eps = (
+          (dV - sign_vector(h, theta)[None, :, None] * dVa) 
+        / (2**0.5 * sigma[:, None]) 
+    )
     
-    # Compute the error vector
-    eps = dV_model - dV        
-    
-    # Compute the likelihood                
+    # Compute the likelihood     
     chi = (
         - 1.0 * np.einsum(
-            'ij...,ij...->...', eps, eps / (2*sigma[:,None]**2), optimize=True
+            'ij...,ij...->...', 
+            eps, eps, optimize=True
         )
         - 3/2 * np.sum(np.log(2 * np.pi * sigma**2))
     )

@@ -13,6 +13,8 @@ import scipy.constants     as cst
 from matplotlib   import pyplot as plt
 from tqdm         import tqdm
 from astropy.time import Time
+from scipy.signal import convolve
+from functools    import partial
 
 import fun
 
@@ -50,6 +52,16 @@ if B.strides[0]!=8:
 N_points    = len(tt)                               # Number of measurements
 
 Va          = fun.Alfven_speed(B, B_mag, n_p, P)    # Alfvén speed computation
+
+# Dot products
+V2  = np.einsum('k...,k...->...', V , V )
+Va2 = np.einsum('k...,k...->...', Va, Va)
+VVa = np.einsum('k...,k...->...', V , Va)
+
+# Multi-dimensional convolution operator
+conv_valid = partial(convolve, mode='valid')
+vconvolve = np.vectorize(conv_valid, signature='(n),(m)->(k)')
+
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 ''' Inputs '''
@@ -91,30 +103,53 @@ for j in tqdm(range(len(scale))):         # Sweep the different scales
     if h % 2 == 0:
         h += 1     
    
-    sigma   = (
-        sigma_0 +                  #Define the noise profile sigma
-        epsilon * h * (1 - np.exp(-0.5 * (np.linspace(-h/2, h/2, h))**2 / h**2) )
+    # Define the noise profile sigma
+    window  = np.linspace(-h/2, h/2, h)
+    sigma   = sigma_0 + epsilon * h * (1 - np.exp(-0.5 * window**2 / h**2))
+    ker_pp  = 0.5 / sigma**2
+    ker_mp  = np.where(window >  0, ker_pp, -ker_pp)
+    
+    all_V = np.vstack((V, Va, VVa))
+    all_V_pp, all_V_mp = [vconvolve(all_V, kernel) for kernel in [ker_pp, ker_mp]]
+    
+    # Likelihoods computation    
+    valid   = np.arange(h//2, N_points - h//2)
+    def Likelihood(kernel, V_k, Va_k, VVa_k) :
+        return 2 * np.squeeze(VVa_k
+        + VVa[valid] * np.sum(kernel)
+        - np.einsum('k...,k...->...', V_k, Va[:, valid]) 
+        - np.einsum('k...,k...->...', Va_k, V[:, valid])
+        )
+        
+    L_pp = Likelihood(ker_pp, *np.split(all_V_pp, (3, 6)))
+    L_pm = Likelihood(ker_mp, *np.split(all_V_mp, (3, 6)))
+        
+    # Posterior computation
+    post_ratio = prior / (1 - prior) * np.hstack(
+        (np.ones(h//2),
+         np.cosh(L_pm/h) / np.cosh(L_pp/h),
+         np.ones(h//2))
     )
         
-                                          # Reshape the vectors into (..., h, N-h+1) Arrays
-                                          # to facilitate the analysis
-    Va_reshaped = as_strided(Va, (3,h,N_points-h+1), (8, 24, 24))    
-    V_reshaped  = as_strided(V,  (3,h,N_points-h+1), (8, 24, 24))
-    tt_reshaped = as_strided(tt, (h,N_points-h+1),   (8, 8))
+    #                                       # Reshape the vectors into (..., h, N-h+1) Arrays
+    #                                       # to facilitate the analysis
+    # Va_reshaped = as_strided(Va, (3,h,N_points-h+1), (8, 24, 24))    
+    # V_reshaped  = as_strided(V,  (3,h,N_points-h+1), (8, 24, 24))
+    # tt_reshaped = as_strided(tt, (h,N_points-h+1),   (8, 8))
     
-                                          # Substract the central value for each window
-    dV          = V_reshaped - V_reshaped[:, h//2, :][:, None]
-    dVa         = Va_reshaped - Va_reshaped[:, h//2, :][:, None]       
+    #                                       # Substract the central value for each window
+    # dV          = V_reshaped - V_reshaped[:, h//2, :][:, None]
+    # dVa         = Va_reshaped - Va_reshaped[:, h//2, :][:, None]       
     
-                                          # Compute the posterior ratio        
-    post_ratio  = fun.compare_posteriors(prior, dVa, dV, h, sigma)    
+    #                                       # Compute the posterior ratio        
+    # post_ratio  = fun.compare_posteriors(prior, dVa, dV, h, sigma)    
     
                                           # Memorise the post ratio of extreme scales 
                                           #(for plotting purposes)
     if j==0:
-        post_ratio_min_scale  = fun.compare_posteriors(prior, dVa, dV, h, sigma) 
+        post_ratio_min_scale  = post_ratio 
     elif j==len(scale)-1:
-        post_ratio_max_scale  = fun.compare_posteriors(prior, dVa, dV, h, sigma) 
+        post_ratio_max_scale  = post_ratio 
 
                                          # find potential jets 
                                          # (post_ratio>1 over two conescutive points)
@@ -131,7 +166,7 @@ for j in tqdm(range(len(scale))):         # Sweep the different scales
                                       
         add_points  = h - len(i_jet[p])  # adjust to window length
         i_0         = i_jet[p][0] - add_points//2
-        i_f         = np.min((i_jet[p][-1] + add_points//2 + 1, len(tt) - 1))
+        i_f         = np.nanmin((i_jet[p][-1] + add_points//2 + 1, len(tt) - 1))
         
                                          # Rotate to the lmn frame      
         lmn_matrix  = np.asarray(
@@ -290,11 +325,12 @@ ax1.set_xlim(tt[0], tt[-1])
 plt.setp(ax6.get_xticklabels(), visible=False)
 
 ax7 = fig.add_subplot(gs[6], sharex = ax1)
-ax7.plot(tt, n_p,   lw=.5, c='k', alpha = alpha, label = r'$n$')
+ax7.plot(tt, post_ratio,   lw=.5, c='k', alpha = alpha, label = r'$n$')
 ax7.set_ylabel(r'${cm^{-3}}$', fontsize=police) 
-ax77 = ax7.twinx()
-ax77.plot(tt, T,   lw=lw, c='purple', alpha = alpha, label = r'$T$')
-ax77.set_ylabel(r'${eV}$', fontsize=police, c='purple') 
+ax7.set_yscale('log')
+# ax77 = ax7.twinx()
+# ax77.plot(tt, T,   lw=lw, c='purple', alpha = alpha, label = r'$T$')
+# ax77.set_ylabel(r'${eV}$', fontsize=police, c='purple') 
 
 ax1.set_xlim(tt[0], tt[-1])
 
