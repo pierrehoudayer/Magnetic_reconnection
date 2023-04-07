@@ -312,15 +312,6 @@ def sign_vector(h, theta):
     return foix 
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def norm_2D(U, V, sign) : 
-    result = (
-          np.einsum('ij...,ij...->...', U, U) 
-        + np.einsum('ij...,ij...->...', V, V)
-        + np.einsum('ij...,ij...->...', U, V) * 2*sign
-    )
-    return result
-
-
 def likelihood(dVa, dV, h, sigma, theta = np.array([1, 1])):
     """
     Computes the likelihood of theta given V, Va and sigma
@@ -435,7 +426,7 @@ def consecutive(data, min_size = 1):
     return result
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def not_detected(tt_jet, tt, i_0, i_f):
+def not_detected(tt_jet, tt_jd, i_0, i_f):
     """
     Check if this interval was previously detected at lower scales
 
@@ -456,8 +447,13 @@ def not_detected(tt_jet, tt, i_0, i_f):
         True if not previously detected, False if already detected.
 
     """
-    for k in range(len(tt_jet)):
-        if (Time(tt[i_0]).jd < tt_jet[k][0]) & (Time(tt[i_f]).jd > tt_jet[k][1]):
+    tt_jet_arr = np.atleast_2d(tt_jet)
+    if tt_jet_arr.shape[1] != 0:
+        if np.any((tt_jd[i_0] <= tt_jet_arr[:, 0]) & (tt_jd[i_f] >= tt_jet_arr[:, 1])) :
+            return False
+        if np.any((tt_jd[i_0] >= tt_jet_arr[:, 0]) & (tt_jd[i_0] <  tt_jet_arr[:, 1])) :
+            return False
+        if np.any((tt_jd[i_f] >  tt_jet_arr[:, 0]) & (tt_jd[i_f] <= tt_jet_arr[:, 1])) :
             return False
     return True
 
@@ -505,15 +501,13 @@ def stable_sign(B_l, h):
     return True
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-def velocity_jet(V_mva, dV_min, h,):
+def velocity_jet(V_mva, h,):
     """  
     Check if a jet is observed over the window
     Parameters
     ----------
     V_mva : ARRAY(3,N)
         Alfvén velocity vector.
-    dV_min : INT
-        Minimum threshold on velocity increase
     h : INT
         Window length
 
@@ -541,8 +535,8 @@ def velocity_jet(V_mva, dV_min, h,):
         return False
     
     # The V_l variation bet. edges and center should be > to 30\% of the maximum $V_l$ variation. 
-    if np.min((np.abs(pente_1) / dVl_max, np.abs(pente_2) / dVl_max))< dV_min:
-        return False
+    # if np.min((np.abs(pente_1) / dVl_max, np.abs(pente_2) / dVl_max))< dV_min:
+    #     return False
 
     return True
 
